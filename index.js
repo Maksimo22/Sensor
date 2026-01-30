@@ -4,11 +4,11 @@ const axios = require('axios');
 const app = express();
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const FIREBASE_URL = process.env.FIREBASE_URL; // ссылка на latest.json или на корень БД
+const FIREBASE_URL = process.env.FIREBASE_URL; // корень Realtime DB
 
 app.use(express.json());
 
-// Функция для отправки сообщений в Telegram
+// Отправка сообщения в Telegram
 async function sendToTelegram(chatId, text) {
   try {
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
@@ -34,25 +34,24 @@ app.post('/webhook', async (req, res) => {
     const text = message.text?.trim().toLowerCase();
 
     if (text === '/show' || text === 'показать датчики') {
-      // Берём данные из latest
-      const response = await axios.get(FIREBASE_URL);
-      const sensorData = response.data?.latest;
+      const response = await axios.get(`${FIREBASE_URL}/latest.json`);
+      const sensorData = response.data;
 
-      if (!sensorData || typeof sensorData.temp === 'undefined') {
-        await sendToTelegram(chatId, '❌ В Firebase нет данных');
+      if (!sensorData || typeof sensorData.temperature === 'undefined') {
+        await sendToTelegram(chatId, '❌ В Firebase нет данных latest');
         return res.sendStatus(200);
       }
 
       // Время последнего замера
-      const lastTime = sensorData.time; // предполагаем, что в latest есть поле time = timestamp в ms
       let intervalText = '';
-      if (lastTime) {
+      if (sensorData.timestamp) {
+        const lastTime = new Date(sensorData.timestamp).getTime();
         const diffMs = Date.now() - lastTime;
         const diffMin = Math.floor(diffMs / 60000);
         intervalText = `⏱ Прошло с последнего замера: ${diffMin} мин\n`;
       }
 
-      const msg = `📊 Последние данные:\n\n🌡 Температура: ${sensorData.temp.toFixed(2)} °C\n💧 Влажность: ${sensorData.hum.toFixed(2)} %\n${intervalText}`;
+      const msg = `📊 Последние данные:\n\n🌡 Температура: ${sensorData.temperature.toFixed(2)} °C\n💧 Влажность: ${sensorData.humidity.toFixed(2)} %\n${intervalText}`;
       await sendToTelegram(chatId, msg);
     }
   } catch (err) {
@@ -70,11 +69,11 @@ app.get('/', (req, res) => {
 // Endpoint для теста Firebase
 app.get('/test-firebase', async (req, res) => {
   try {
-    const response = await axios.get(FIREBASE_URL);
+    const response = await axios.get(`${FIREBASE_URL}/latest.json`);
     res.json({
       success: true,
       data: response.data,
-      message: '✅ Данные из Firebase получены'
+      message: '✅ Данные latest из Firebase получены'
     });
   } catch (err) {
     res.json({ success: false, error: err.message });
