@@ -1,55 +1,96 @@
+require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
+
+const app = express();
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const FIREBASE_URL = process.env.FIREBASE_URL || 'https://sensor-temp-3dbc5-default-rtdb.firebaseio.com/latest.json';
+
+app.use(express.json());
+
+// Главная страница
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>✅ Сервер работает</h1>
+    <p><a href="/check">Проверить конфигурацию</a></p>
+    <p><a href="/firebase">Данные Firebase</a></p>
+    <p>Webhook: POST /webhook</p>
+  `);
+});
+
+// Проверка конфигурации
+app.get('/check', (req, res) => {
+  res.json({
+    bot_token: BOT_TOKEN ? '✅ Есть' : '❌ Нет',
+    firebase_url: FIREBASE_URL,
+    server_time: new Date().toISOString()
+  });
+});
+
+// Данные из Firebase
+app.get('/firebase', async (req, res) => {
+  try {
+    const response = await axios.get(FIREBASE_URL);
+    res.json({
+      success: true,
+      data: response.data,
+      structure: Object.keys(response.data)
+    });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
+
+// Webhook Telegram
 app.post('/webhook', async (req, res) => {
-  console.log('📨 Telegram webhook вызван');
+  console.log('📨 Telegram webhook получен');
   
   try {
-    const { message } = req.body;
+    const message = req.body.message;
     if (!message) return res.sendStatus(200);
 
     const chatId = message.chat.id;
     const text = message.text?.trim();
     
-    console.log(`💬 Chat: ${chatId}, Text: "${text}"`);
+    console.log(`Chat: ${chatId}, Text: "${text}"`);
 
     if (text === '/show' || text?.toLowerCase() === 'показать датчики') {
-      // Получаем данные из Firebase
+      // Получаем данные
       const response = await axios.get(FIREBASE_URL);
-      console.log('🔥 Firebase raw:', response.data);
+      const data = response.data;
       
-      // Поддержка обеих структур
-      let sensorData;
-      if (response.data && response.data.data) {
-        // Структура: { data: { temp, hum, pres } }
-        sensorData = response.data.data;
-        console.log('📊 Using nested data structure');
-      } else {
-        // Структура: { temp, hum, pres }
-        sensorData = response.data;
-        console.log('📊 Using flat data structure');
-      }
+      // Проверяем структуру
+      const sensorData = data.data || data;
       
-      if (!sensorData || typeof sensorData.temp === 'undefined') {
-        console.log('❌ Нет данных в Firebase');
-        await sendTelegram(chatId, '❌ В Firebase нет данных');
+      if (!sensorData.temp) {
+        await sendTelegram(chatId, '❌ Нет данных');
         return res.sendStatus(200);
       }
 
-      // Форматируем время
+      // Формируем сообщение
       const now = new Date();
-      const timeStr = now.toLocaleString('ru-RU', {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-
-      const msg = `📊 Данные на ${timeStr}:\n\n🌡 Температура: ${sensorData.temp} °C\n💧 Влажность: ${sensorData.hum} %\n📈 Давление: ${sensorData.pres} мм`;
+      const timeStr = `${now.getDate().toString().padStart(2, '0')}.${(now.getMonth()+1).toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
       
-      console.log('📤 Отправляю:', msg);
+      const msg = `📊 Данные на ${timeStr}:\n\n🌡 ${sensorData.temp}°C\n💧 ${sensorData.hum}%\n📈 ${sensorData.pres} мм`;
+      
       await sendTelegram(chatId, msg);
     }
   } catch (error) {
-    console.error('❌ Ошибка:', error.message);
+    console.error('Error:', error.message);
   }
 
   res.sendStatus(200);
+});
+
+// Функция отправки в Telegram
+async function sendTelegram(chatId, text) {
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+  await axios.post(url, { chat_id: chatId, text });
+}
+
+// Запуск сервера
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  console.log(`📊 Firebase: ${FIREBASE_URL}`);
 });
