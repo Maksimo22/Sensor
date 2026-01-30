@@ -1,96 +1,58 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-
 const app = express();
+
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const FIREBASE_URL = process.env.FIREBASE_URL || 'https://sensor-temp-3dbc5-default-rtdb.firebaseio.com/latest.json';
+const FIREBASE_URL = process.env.FIREBASE_URL;
 
 app.use(express.json());
 
-// Главная страница
-app.get('/', (req, res) => {
-  res.send(`
-    <h1>✅ Сервер работает</h1>
-    <p><a href="/check">Проверить конфигурацию</a></p>
-    <p><a href="/firebase">Данные Firebase</a></p>
-    <p>Webhook: POST /webhook</p>
-  `);
-});
+// Проверка работы сервера
+app.get('/', (req, res) => res.send('✅ Сервер работает'));
 
-// Проверка конфигурации
-app.get('/check', (req, res) => {
-  res.json({
-    bot_token: BOT_TOKEN ? '✅ Есть' : '❌ Нет',
-    firebase_url: FIREBASE_URL,
-    server_time: new Date().toISOString()
-  });
-});
-
-// Данные из Firebase
-app.get('/firebase', async (req, res) => {
-  try {
-    const response = await axios.get(FIREBASE_URL);
-    res.json({
-      success: true,
-      data: response.data,
-      structure: Object.keys(response.data)
-    });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
-
-// Webhook Telegram
+// Telegram Webhook
 app.post('/webhook', async (req, res) => {
-  console.log('📨 Telegram webhook получен');
-  
+  console.log('📨 Получен запрос от Telegram', req.body);
+
   try {
-    const message = req.body.message;
+    const { message } = req.body;
     if (!message) return res.sendStatus(200);
 
     const chatId = message.chat.id;
-    const text = message.text?.trim();
-    
-    console.log(`Chat: ${chatId}, Text: "${text}"`);
+    const text = message.text?.trim()?.toLowerCase();
 
-    if (text === '/show' || text?.toLowerCase() === 'показать датчики') {
-      // Получаем данные
+    if (text === '/show' || text === 'показать датчики') {
+      // Получаем latest данные
       const response = await axios.get(FIREBASE_URL);
       const data = response.data;
-      
-      // Проверяем структуру
-      const sensorData = data.data || data;
-      
-      if (!sensorData.temp) {
-        await sendTelegram(chatId, '❌ Нет данных');
+
+      if (!data || typeof data.temperature === 'undefined') {
+        await sendToTelegram(chatId, '❌ В Firebase нет данных');
         return res.sendStatus(200);
       }
 
-      // Формируем сообщение
+      const timestamp = new Date(data.timestamp);
       const now = new Date();
-      const timeStr = `${now.getDate().toString().padStart(2, '0')}.${(now.getMonth()+1).toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      
-      const msg = `📊 Данные на ${timeStr}:\n\n🌡 ${sensorData.temp}°C\n💧 ${sensorData.hum}%\n📈 ${sensorData.pres} мм`;
-      
-      await sendTelegram(chatId, msg);
+      const minutesAgo = Math.round((now - timestamp) / 60000);
+
+      const msg = `📊 Последние данные:\n\n🌡 Температура: ${data.temperature.toFixed(2)} °C\n💧 Влажность: ${data.humidity.toFixed(2)} %\n⏱ Последний замер: ${minutesAgo} мин назад`;
+      await sendToTelegram(chatId, msg);
     }
-  } catch (error) {
-    console.error('Error:', error.message);
+  } catch (err) {
+    console.error('❌ Ошибка:', err.message);
   }
 
   res.sendStatus(200);
 });
 
-// Функция отправки в Telegram
-async function sendTelegram(chatId, text) {
+async function sendToTelegram(chatId, text) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-  await axios.post(url, { chat_id: chatId, text });
+  await axios.post(url, { chat_id: chatId, text, parse_mode: 'HTML' });
 }
 
-// Запуск сервера
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`📊 Firebase: ${FIREBASE_URL}`);
+  console.log(`📊 Firebase URL: ${FIREBASE_URL}`);
 });
