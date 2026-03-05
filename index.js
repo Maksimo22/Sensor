@@ -4,23 +4,43 @@ const axios = require('axios');
 
 const app = express();
 
-// Переменные окружения (настраиваются на Render.com)
+// Переменные окружения
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const SHEETS_URL = process.env.SHEETS_URL;      // для данных с датчика
-const SETTINGS_URL = process.env.SETTINGS_URL;  // для настроек
+const SHEETS_URL = process.env.SHEETS_URL;
+const SETTINGS_URL = process.env.SETTINGS_URL;
+
+// Имя бота (без @)
+const BOT_USERNAME = "TempSensorBot_bot";
 
 app.use(express.json());
+
+// Функция для очистки команды от упоминания бота
+function cleanCommand(text) {
+  if (!text) return "";
+  
+  // Удаляем @имя_бота из команды
+  if (text.includes('@')) {
+    return text.split('@')[0];
+  }
+  return text;
+}
 
 // ==================== ВЕБХУК ДЛЯ TELEGRAM ====================
 app.post('/webhook', async (req, res) => {
   try {
+    console.log('🔥 Получен запрос:', JSON.stringify(req.body, null, 2));
+    
     const message = req.body.message;
-    if (!message) return res.sendStatus(200);
+    if (!message) {
+      console.log('❌ Нет message в запросе');
+      return res.sendStatus(200);
+    }
 
     const chatId = message.chat.id;
-    const text = message.text?.trim();
+    const rawText = message.text?.trim() || "";
+    const text = cleanCommand(rawText); // Очищаем команду
 
-    console.log(`📨 Команда от ${chatId}: ${text}`);
+    console.log(`📨 Команда от ${chatId}: raw="${rawText}", clean="${text}"`);
 
     // ===== HELP =====
     if (text === '/help') {
@@ -29,8 +49,8 @@ app.post('/webhook', async (req, res) => {
 
 /show - последние данные с датчика
 /settings - текущие настройки
-/set\\_period [N] - установить период (мин)
-/set\\_threshold [T] - установить порог (°C)
+/set_period [N] - установить период (мин)
+/set_threshold [T] - установить порог (°C)
 /help - это сообщение
 
 *Примеры:*
@@ -91,8 +111,15 @@ app.post('/webhook', async (req, res) => {
     }
     
     // ===== УСТАНОВИТЬ ПЕРИОД =====
-    else if (text.startsWith('/set_period ')) {
-      const newPeriod = parseInt(text.substring(12).trim());
+    else if (text === '/set_period' || text.startsWith('/set_period ')) {
+      let newPeriod;
+      
+      if (text === '/set_period') {
+        await sendMessage(chatId, "❌ Укажите период в минутах. Например: /set_period 30");
+        return res.sendStatus(200);
+      } else {
+        newPeriod = parseInt(text.substring(12).trim());
+      }
       
       if (isNaN(newPeriod) || newPeriod < 1 || newPeriod > 1440) {
         await sendMessage(chatId, "❌ Период должен быть числом от 1 до 1440 минут");
@@ -113,8 +140,15 @@ app.post('/webhook', async (req, res) => {
     }
     
     // ===== УСТАНОВИТЬ ПОРОГ =====
-    else if (text.startsWith('/set_threshold ')) {
-      const newThreshold = parseFloat(text.substring(15).trim());
+    else if (text === '/set_threshold' || text.startsWith('/set_threshold ')) {
+      let newThreshold;
+      
+      if (text === '/set_threshold') {
+        await sendMessage(chatId, "❌ Укажите порог температуры. Например: /set_threshold 18");
+        return res.sendStatus(200);
+      } else {
+        newThreshold = parseFloat(text.substring(15).trim());
+      }
       
       if (isNaN(newThreshold) || newThreshold < -50 || newThreshold > 50) {
         await sendMessage(chatId, "❌ Порог должен быть числом от -50 до 50 °C");
@@ -175,4 +209,5 @@ app.listen(PORT, () => {
   console.log(`📌 BOT_TOKEN: ${BOT_TOKEN ? 'установлен' : 'НЕ УСТАНОВЛЕН!'}`);
   console.log(`📌 SHEETS_URL: ${SHEETS_URL ? 'установлен' : 'НЕ УСТАНОВЛЕН!'}`);
   console.log(`📌 SETTINGS_URL: ${SETTINGS_URL ? 'установлен' : 'НЕ УСТАНОВЛЕН!'}`);
+  console.log(`📌 Bot username: ${BOT_USERNAME}`);
 });
