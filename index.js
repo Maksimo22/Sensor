@@ -28,10 +28,7 @@ function cleanCommand(text) {
 // ==================== ВЕБХУК ДЛЯ TELEGRAM ====================
 app.post('/webhook', async (req, res) => {
   try {
-    // Логируем ВСЁ, что приходит
     console.log('\n========== НОВЫЙ ЗАПРОС ==========');
-    console.log('🔥 Полный запрос:', JSON.stringify(req.body, null, 2));
-    console.log('🔥 Headers:', req.headers);
     
     const message = req.body.message;
     if (!message) {
@@ -40,30 +37,15 @@ app.post('/webhook', async (req, res) => {
     }
 
     const chatId = message.chat.id;
-    const chatType = message.chat.type;
     const rawText = message.text?.trim() || "";
     const text = cleanCommand(rawText);
 
-    console.log('\n📨 ИНФОРМАЦИЯ О СООБЩЕНИИ:');
-    console.log(`   Chat ID: ${chatId}`);
-    console.log(`   Chat type: ${chatType}`);
-    console.log(`   From: ${message.from?.username || 'unknown'}`);
-    console.log(`   Raw text: "${rawText}"`);
-    console.log(`   Clean text: "${text}"`);
-    console.log(`   Text length: ${text.length}`);
-    console.log(`   First char code: ${text.charCodeAt(0)}`);
-
-    // Проверяем точное совпадение
-    console.log('\n🔍 ПРОВЕРКА СОВПАДЕНИЙ:');
-    console.log(`   text === '/help'? ${text === '/help'}`);
-    console.log(`   text === '/show'? ${text === '/show'}`);
-    console.log(`   text === '/settings'? ${text === '/settings'}`);
+    console.log(`📨 Команда: "${text}"`);
 
     // ===== HELP =====
     if (text === '/help') {
-      console.log('✅ НАЙДЕНА КОМАНДА /help');
       const help = 
-`📋 *Доступные команды:*
+`📋 Доступные команды:
 
 /show - последние данные с датчика
 /settings - текущие настройки
@@ -71,7 +53,7 @@ app.post('/webhook', async (req, res) => {
 /set_threshold [T] - установить порог (°C)
 /help - это сообщение
 
-*Примеры:*
+Примеры:
 /set_period 30 - замеры каждые 30 мин
 /set_threshold 18 - предупреждение при <18°C`;
 
@@ -80,12 +62,9 @@ app.post('/webhook', async (req, res) => {
     
     // ===== ПОКАЗАТЬ ПОСЛЕДНИЕ ДАННЫЕ =====
     else if (text === '/show') {
-      console.log('✅ НАЙДЕНА КОМАНДА /show');
       try {
-        console.log('📤 Запрос к SHEETS_URL:', SHEETS_URL);
+        console.log('📤 Запрос к SHEETS_URL');
         const response = await axios.get(SHEETS_URL);
-        console.log('📥 Ответ от Google Sheets:', response.data);
-        
         const data = response.data;
         
         if (data.error) {
@@ -94,7 +73,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         const msg = 
-`📊 *Последние данные:*
+`📊 Последние данные:
 
 📅 ${data.datetime || 'Нет даты'}
 🌡 Температура: ${Number(data.temperature).toFixed(2)} °C
@@ -104,33 +83,25 @@ app.post('/webhook', async (req, res) => {
         await sendMessage(chatId, msg);
       } catch (error) {
         console.error('❌ Ошибка получения данных:', error.message);
-        if (error.response) {
-          console.error('Статус ответа:', error.response.status);
-          console.error('Данные ответа:', error.response.data);
-        }
         await sendMessage(chatId, "❌ Ошибка получения данных из Google Sheets");
       }
     }
     
     // ===== ПОКАЗАТЬ НАСТРОЙКИ =====
     else if (text === '/settings') {
-      console.log('✅ НАЙДЕНА КОМАНДА /settings');
       try {
-        const url = `${SETTINGS_URL}?action=getSettings`;
-        console.log('📤 Запрос к SETTINGS_URL:', url);
-        const response = await axios.get(url);
-        console.log('📥 Ответ от Google Sheets:', response.data);
-        
+        console.log('📤 Запрос к SETTINGS_URL');
+        const response = await axios.get(SETTINGS_URL);
         const settings = response.data;
         
         const msg = 
-`⚙️ *Текущие настройки:*
+`⚙️ Текущие настройки:
 
-⏱ Период замеров: ${settings.period || 60} мин
+⏱️ Период замеров: ${settings.period || 60} мин
 🌡 Порог температуры: < ${settings.threshold || 20.0} °C
 🏔 Высота над уровнем моря: ${settings.altitude || 193} м
 
-*Изменить:*
+Изменить:
 /set_period [минуты]
 /set_threshold [градусы]`;
 
@@ -142,14 +113,7 @@ app.post('/webhook', async (req, res) => {
     }
     
     // ===== УСТАНОВИТЬ ПЕРИОД =====
-    else if (text.startsWith('/set_period')) {
-      console.log('✅ НАЙДЕНА КОМАНДА /set_period');
-      
-      if (text === '/set_period') {
-        await sendMessage(chatId, "❌ Укажите период в минутах. Например: /set_period 30");
-        return res.sendStatus(200);
-      }
-      
+    else if (text.startsWith('/set_period ')) {
       const parts = text.split(' ');
       if (parts.length < 2) {
         await sendMessage(chatId, "❌ Укажите период в минутах. Например: /set_period 30");
@@ -157,7 +121,7 @@ app.post('/webhook', async (req, res) => {
       }
       
       const newPeriod = parseInt(parts[1]);
-      console.log(`   Новый период: ${newPeriod}`);
+      console.log(`📝 Установка периода: ${newPeriod} мин`);
       
       if (isNaN(newPeriod) || newPeriod < 1 || newPeriod > 1440) {
         await sendMessage(chatId, "❌ Период должен быть числом от 1 до 1440 минут");
@@ -165,7 +129,6 @@ app.post('/webhook', async (req, res) => {
       }
       
       try {
-        console.log('📤 Отправка POST на SETTINGS_URL');
         await axios.post(SETTINGS_URL, {
           action: 'set_period',
           value: newPeriod
@@ -179,14 +142,7 @@ app.post('/webhook', async (req, res) => {
     }
     
     // ===== УСТАНОВИТЬ ПОРОГ =====
-    else if (text.startsWith('/set_threshold')) {
-      console.log('✅ НАЙДЕНА КОМАНДА /set_threshold');
-      
-      if (text === '/set_threshold') {
-        await sendMessage(chatId, "❌ Укажите порог температуры. Например: /set_threshold 18");
-        return res.sendStatus(200);
-      }
-      
+    else if (text.startsWith('/set_threshold ')) {
       const parts = text.split(' ');
       if (parts.length < 2) {
         await sendMessage(chatId, "❌ Укажите порог температуры. Например: /set_threshold 18");
@@ -194,7 +150,7 @@ app.post('/webhook', async (req, res) => {
       }
       
       const newThreshold = parseFloat(parts[1]);
-      console.log(`   Новый порог: ${newThreshold}`);
+      console.log(`📝 Установка порога: ${newThreshold} °C`);
       
       if (isNaN(newThreshold) || newThreshold < -50 || newThreshold > 50) {
         await sendMessage(chatId, "❌ Порог должен быть числом от -50 до 50 °C");
@@ -202,7 +158,6 @@ app.post('/webhook', async (req, res) => {
       }
       
       try {
-        console.log('📤 Отправка POST на SETTINGS_URL');
         await axios.post(SETTINGS_URL, {
           action: 'set_threshold',
           value: newThreshold
@@ -217,13 +172,11 @@ app.post('/webhook', async (req, res) => {
     
     // ===== НЕИЗВЕСТНАЯ КОМАНДА =====
     else {
-      console.log('❌ НЕИЗВЕСТНАЯ КОМАНДА');
       await sendMessage(chatId, "❌ Неизвестная команда. Отправьте /help для списка команд.");
     }
 
   } catch (err) {
     console.error('❌ Общая ошибка:', err.message);
-    console.error('Stack:', err.stack);
   }
 
   res.sendStatus(200);
@@ -232,41 +185,23 @@ app.post('/webhook', async (req, res) => {
 // ==================== ФУНКЦИЯ ОТПРАВКИ СООБЩЕНИЙ ====================
 async function sendMessage(chatId, text) {
   try {
-    console.log(`📤 Отправка сообщения в чат ${chatId}:`, text.substring(0, 50) + '...');
-    
-    const response = await axios.post(
+    await axios.post(
       `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
       {
         chat_id: chatId,
         text: text,
-        parse_mode: 'Markdown'
+        parse_mode: ""  // Пустой parse_mode = обычный текст без форматирования
       }
     );
-    
-    console.log('✅ Сообщение отправлено, статус:', response.status);
+    console.log('✅ Сообщение отправлено');
   } catch (error) {
     console.error('❌ Ошибка отправки сообщения:', error.message);
-    if (error.response) {
-      console.error('Статус ответа:', error.response.status);
-      console.error('Данные ответа:', error.response.data);
-    }
   }
 }
 
 // ==================== ПРОВЕРКА РАБОТОСПОСОБНОСТИ ====================
 app.get('/', (req, res) => {
-  res.send('Telegram Bot is running!');
-});
-
-// ==================== ТЕСТОВЫЙ ЭНДПОИНТ ====================
-app.get('/test', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'Bot is running',
-    botToken: BOT_TOKEN ? 'set' : 'not set',
-    sheetsUrl: SHEETS_URL ? 'set' : 'not set',
-    settingsUrl: SETTINGS_URL ? 'set' : 'not set'
-  });
+  res.send('🤖 Telegram Bot is running!');
 });
 
 // ==================== ЗАПУСК СЕРВЕРА ====================
@@ -274,9 +209,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log('\n========== СЕРВЕР ЗАПУЩЕН ==========');
   console.log(`🚀 Порт: ${PORT}`);
-  console.log(`📌 BOT_TOKEN: ${BOT_TOKEN ? 'установлен' : 'НЕ УСТАНОВЛЕН!'}`);
-  console.log(`📌 SHEETS_URL: ${SHEETS_URL ? 'установлен' : 'НЕ УСТАНОВЛЕН!'}`);
-  console.log(`📌 SETTINGS_URL: ${SETTINGS_URL ? 'установлен' : 'НЕ УСТАНОВЛЕН!'}`);
-  console.log(`📌 Bot username: ${BOT_USERNAME}`);
+  console.log(`📌 BOT_TOKEN: ${BOT_TOKEN ? '✅ установлен' : '❌ НЕ УСТАНОВЛЕН!'}`);
+  console.log(`📌 SHEETS_URL: ${SHEETS_URL ? '✅ установлен' : '❌ НЕ УСТАНОВЛЕН!'}`);
+  console.log(`📌 SETTINGS_URL: ${SETTINGS_URL ? '✅ установлен' : '❌ НЕ УСТАНОВЛЕН!'}`);
   console.log('=====================================\n');
 });
